@@ -4,10 +4,48 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+// Tangani preflight (CORS)
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { 
+    http_response_code(204); 
+    exit; 
+}
 
 require_once __DIR__ . '/../../../config/config_database.php';
+require_once __DIR__ . '/../../../vendor/autoload.php';
 
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+
+// Secret key (sama seperti di login.php)
+$secret_key = "#112q282asdngombakanKey!";
+
+// 🔒 Cek Authorization Header
+$headers = getallheaders();
+if (!isset($headers['Authorization'])) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'message' => 'Token tidak ditemukan.']);
+    exit;
+}
+
+$authHeader = $headers['Authorization'];
+if (!preg_match('/Bearer\s(\S+)/', $authHeader, $matches)) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'message' => 'Format Authorization header tidak valid.']);
+    exit;
+}
+
+$jwt = $matches[1];
+
+try {
+    // Verifikasi token JWT
+    $decoded = JWT::decode($jwt, new Key($secret_key, 'HS256'));
+} catch (Exception $e) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'message' => 'Token tidak valid: ' . $e->getMessage()]);
+    exit;
+}
+
+// ✅ Jika token valid, lanjut ke proses utama
 try {
     $input = json_decode(file_get_contents('php://input'), true);
     if (!is_array($input)) {
@@ -29,7 +67,7 @@ try {
         exit;
     }
 
-    // validate time format HH:MM:SS or HH:MM
+    // Validasi format waktu HH:MM:SS atau HH:MM
     $validateTime = function($t){
         if ($t === null) return true;
         $d = \DateTime::createFromFormat('H:i:s', $t);
@@ -44,7 +82,7 @@ try {
         exit;
     }
 
-    // Normalize times to HH:MM:SS if provided as HH:MM
+    // Normalisasi ke HH:MM:SS
     $normalizeTime = function($t){
         if ($t === null) return null;
         if (preg_match('/^\d{2}:\d{2}$/', $t)) return $t . ':00';
@@ -54,7 +92,7 @@ try {
     $jam_buka = $normalizeTime($jam_buka);
     $jam_tutup = $normalizeTime($jam_tutup);
 
-    // check uniqueness hari
+    // Pastikan hari unik
     $check = $pdo->prepare("SELECT id FROM jadwal_pelayanan WHERE hari = :hari LIMIT 1");
     $check->execute([':hari'=>$hari]);
     if ($check->fetch(PDO::FETCH_ASSOC)) {
@@ -63,6 +101,7 @@ try {
         exit;
     }
 
+    // Insert ke DB
     $sql = "INSERT INTO jadwal_pelayanan (hari, jam_buka, jam_tutup, is_buka, keterangan)
             VALUES (:hari, :jam_buka, :jam_tutup, :is_buka, :keterangan)";
     $stmt = $pdo->prepare($sql);

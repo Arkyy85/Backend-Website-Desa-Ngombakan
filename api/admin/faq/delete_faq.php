@@ -1,13 +1,10 @@
 <?php
-header("Content-Type: application/json; charset=utf-8");
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
-    exit;
-}
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 require_once __DIR__ . '/../../../config/config_database.php';
 require_once __DIR__ . '/../../../vendor/autoload.php';
@@ -45,12 +42,12 @@ if (!$token) {
 try {
     $decoded = JWT::decode($token, new Key($secret_key, 'HS256'));
     // ambil informasi user jika tersedia
-    $user = $decoded->user ?? null;
-    if (!$user) {
-        http_response_code(403);
-        echo json_encode(['success' => false, 'message' => 'Token tidak memiliki data user.']);
-        exit;
-    }
+    // $user = $decoded->user ?? null;
+    // if (!$user) {
+    //     http_response_code(403);
+    //     echo json_encode(['success' => false, 'message' => 'Token tidak memiliki data user.']);
+    //     exit;
+    // }
 } catch (Exception $e) {
     http_response_code(401);
     echo json_encode(["success" => false, "message" => "Token tidak valid: " . $e->getMessage()]);
@@ -58,27 +55,17 @@ try {
 }
 // --- END JWT AUTH CHECK ---
 
+if (!isset($pdo) || !($pdo instanceof PDO)) { http_response_code(500); echo json_encode(['success'=>false,'message'=>'Database connection not found.']); exit; }
+
+$input = json_decode(file_get_contents('php://input'), true);
+$id = isset($input['id']) ? (int)$input['id'] : 0;
+if ($id <= 0) { http_response_code(400); echo json_encode(['success'=>false,'message'=>'Field id wajib untuk delete.']); exit; }
+
 try {
-    $input = json_decode(file_get_contents("php://input"), true);
-    $id = isset($input['id']) ? (int)$input['id'] : 0;
-
-    if ($id <= 0) {
-        http_response_code(400);
-        echo json_encode(["success" => false, "message" => "Field 'id' wajib diisi."]);
-        exit;
-    }
-
-    $stmt = $pdo->prepare("DELETE FROM berita WHERE id = :id");
-    $stmt->execute([':id' => $id]);
-
-    if ($stmt->rowCount() > 0) {
-        echo json_encode(["success" => true, "message" => "Data berita berhasil dihapus."]);
-    } else {
-        http_response_code(404);
-        echo json_encode(["success" => false, "message" => "Data berita tidak ditemukan."]);
-    }
-
+    $stmt = $pdo->prepare("DELETE FROM faq WHERE id = :id LIMIT 1");
+    $stmt->execute([':id'=>$id]);
+    if ($stmt->rowCount() > 0) echo json_encode(['success'=>true,'message'=>'FAQ berhasil dihapus.','id'=>$id]);
+    else echo json_encode(['success'=>false,'message'=>'FAQ tidak ditemukan atau sudah dihapus.']);
 } catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(["success" => false, "message" => "Kesalahan database: " . $e->getMessage()]);
+    http_response_code(500); echo json_encode(['success'=>false,'message'=>'Database error: '.$e->getMessage()]);
 }

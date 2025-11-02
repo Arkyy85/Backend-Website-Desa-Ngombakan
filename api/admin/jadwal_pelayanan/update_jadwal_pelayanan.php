@@ -7,6 +7,47 @@ header("Access-Control-Allow-Headers: Content-Type, Authorization");
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 require_once __DIR__ . '/../../../config/config_database.php';
+require_once __DIR__ . '/../../../vendor/autoload.php';
+
+use \Firebase\JWT\JWT;
+use \Firebase\JWT\Key;
+
+// Secret key sama seperti di file login.php
+$secret_key = "#112q282232%@!Q#1@!122221!@1";
+
+// --- JWT AUTH CHECK (format & urutan sesuai standar) ---
+$allHeaders = function_exists('getallheaders') ? getallheaders() : [];
+$authHeader = null;
+if (is_array($allHeaders)) {
+    foreach ($allHeaders as $k => $v) {
+        if (strtolower($k) === 'authorization') { $authHeader = $v; break; }
+    }
+}
+if ($authHeader === null) {
+    if (!empty($_SERVER['HTTP_AUTHORIZATION'])) $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
+    elseif (!empty($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+}
+if (!$authHeader || !preg_match('/Bearer\s(\S+)/', $authHeader, $m)) {
+    http_response_code(401);
+    echo json_encode(['success'=>false,'message'=>'Authorization header tidak ditemukan atau format salah.']);
+    exit;
+}
+$jwt = $m[1];
+
+try {
+    $decoded = JWT::decode($jwt, new Key($secret_key, 'HS256'));
+    $user = $decoded->user ?? null;
+    if (!$user) {
+        http_response_code(403);
+        echo json_encode(['success'=>false,'message'=>'Token tidak memiliki data user.']);
+        exit;
+    }
+} catch (Exception $e) {
+    http_response_code(401);
+    echo json_encode(['success'=>false,'message'=>'Token tidak valid atau sudah kedaluwarsa.']);
+    exit;
+}
+// --- END JWT AUTH CHECK ---
 
 try {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -63,14 +104,15 @@ try {
                 if ($val === null || $val === '') {
                     $set[] = "$col = NULL";
                 } else {
-                    // validate time
-                    $d = \DateTime::createFromFormat('H:i:s', $val) ?: \DateTime::createFromFormat('H:i', $val);
+                    // validate time (HH:MM:SS or HH:MM)
+                    $d = \DateTime::createFromFormat('H:i:s', $val);
+                    if (!$d) $d = \DateTime::createFromFormat('H:i', $val);
                     if (!$d) {
                         http_response_code(400);
                         echo json_encode(['success'=>false,'message'=>"Format '$col' tidak valid. Gunakan HH:MM atau HH:MM:SS."]);
                         exit;
                     }
-                    // normalize
+                    // normalize to HH:MM:SS
                     $time = $d->format('H:i:s');
                     $set[] = "$col = :$col";
                     $params[":$col"] = $time;
@@ -106,11 +148,11 @@ try {
     echo json_encode(['success'=>true,'message'=>'Jadwal berhasil diupdate.','id'=>$id], JSON_UNESCAPED_UNICODE);
 
 } catch (PDOException $e) {
-    if ($pdo && $pdo->inTransaction()) $pdo->rollBack();
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
     http_response_code(500);
     echo json_encode(['success'=>false,'message'=>'Kesalahan database: '.$e->getMessage()]);
 } catch (Exception $e) {
-    if ($pdo && $pdo->inTransaction()) $pdo->rollBack();
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
     http_response_code(500);
     echo json_encode(['success'=>false,'message'=>'Kesalahan server: '.$e->getMessage()]);
 }
